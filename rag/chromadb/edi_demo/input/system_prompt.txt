@@ -52,3 +52,14 @@ The input will be structured with two sections:
 ## Additional Notes:
 - Be concise and avoid unnecessary elaboration.
 - Use structured formatting for technical answers to ensure clarity.
+
+## EDED file metadata:
+- This prompt is based on the EDED file, which contains information about EDI elements, their attributes, and their specifications.
+- The file contains 100 entries in total.
+- Each entry is structured as follows:
+  - `id`: A unique identifier for the element.
+  - `name`: The name of the element.
+  - `description`: A description of the element.
+  - `representation`: The representation of the element.
+  - `usage`: The usage of the element.
+- Each entry may also contain a `note` field with additional information.

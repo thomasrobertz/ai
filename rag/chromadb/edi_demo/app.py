@@ -8,13 +8,9 @@ from dotenv import load_dotenv
 import logging
 import re
 import json
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
 
 load_dotenv()
 system_prompt = ""
-stopwords = set()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 chroma_client = chromadb.PersistentClient(
@@ -32,14 +28,23 @@ CORS(app)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 code_pattern = r"code\s+(\d{4})"
 
-system_prompt = """You are a helpful assistant specialized in answering questions about EDI document specifications.
-The request will contain a Context: and a Query: section.
-"""
+# Store last context and query globally
+last_context = None
+last_query = None
+
+def normalize_text(text):
+    return re.findall(r'\b[\w.-]+\b', text.lower())
+
+def highlight_context(context, query_words):
+    def replacer(match):
+        word = match.group()
+        return f"<span style='background-color: #ffefbf'>{word}</span>" if word.lower() in query_words else word
+    return re.sub(r'\b[\w.-]+\b', replacer, context)
 
 def dummy_response(context, user_query):
     """Generate an empty streaming response."""
     try:
-        logging.info("Generating empty streaming response")
+        #logging.info("Generating empty streaming response")
         def empty_stream():
             yield "data: \n\n"
         return empty_stream()
@@ -50,17 +55,11 @@ def dummy_response(context, user_query):
         return error_stream()
 
 def generate_response(context, user_query):
-    """Generate streaming response using OpenAI's API, with RAG data included."""
+    """Generate streaming response using OpenAI's API."""
     try:
-        logging.info("Starting OpenAI completion request")
-
-        if context:
-            logging.info(f"Streaming RAG context: {context}")
-            yield f"data: {json.dumps({'rag_context': context})}\n\n"
-
         completion = client.chat.completions.create(
             model="gpt-4",
-            max_tokens=150,
+            max_tokens=1000,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Context: {context}\n\nQuery: {user_query}"}
@@ -70,39 +69,33 @@ def generate_response(context, user_query):
         has_streamed_data = False
 
         for chunk in completion:
-            logging.info(f"Received chunk: {chunk}")
-
             for choice in chunk.choices:
                 if choice.delta.content:
                     content = choice.delta.content
-                    logging.info(f"Streaming chunk content: {content}")
-                    yield f"data: {json.dumps({'openai_response': content})}\n\n"
+                    yield f"data: {json.dumps({'content': content})}\n\n"
                     has_streamed_data = True
 
         if not has_streamed_data:
             logging.warning("No data streamed from OpenAI.")
-            yield "data: {json.dumps({'error': 'No data received from OpenAI.'})}\n\n"
-        logging.info("Completed streaming all chunks")
-
+            yield f"data: {json.dumps({'error': 'No data received from OpenAI.'})}\n\n"
+        
         yield "data: [DONE]\n\n"
 
     except Exception as e:
         logging.error(f"Error during OpenAI completion: {e}", exc_info=True)
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-@app.route('/query', methods=['POST'])
-def query_collection():
-    """Handle user query and stream response."""
+@app.route('/context', methods=['POST'])
+def get_context():
+    """Get RAG context for a query."""
     try:
-        logging.info("Received query request")
+        global last_context, last_query
         
         # Validate query input
         user_query = request.json.get("query", "").strip()
         if not user_query:
             logging.warning("No query provided in request")
             return jsonify({"error": "Query is required"}), 400
-
-        logging.info(f"Query: {user_query}")
 
         # Apply code filter if applicable
         code_filter = None
@@ -114,21 +107,41 @@ def query_collection():
         try:
             context_results = collection.query(
                 query_texts=[user_query],
-                n_results=2,
+                n_results=10,
                 where=code_filter
             )
         except Exception as query_error:
             logging.error(f"Error querying collection: {query_error}")
             return jsonify({"error": "Error querying collection"}), 500
 
-        # Retrieve context
-        context = " ".join(
-            [" ".join(doc) if isinstance(doc, list) else doc for doc in context_results.get("documents", [])]
-        )
-        logging.info(f"Retrieved context: {context}")
+        # Store context and query for later use
+        last_context = " ".join([" ".join(doc) if isinstance(doc, list) else doc for doc in context_results.get("documents", [])])
+        last_query = user_query
+
+        # Return highlighted context
+        user_query_split = normalize_text(user_query)
+        highlighted_context = highlight_context(last_context, set(user_query_split))
+        
+        return jsonify({"context": highlighted_context})
+
+    except Exception as e:
+        logging.error(f"Error in get_context: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/query', methods=['POST'])
+def query_collection():
+    """Handle OpenAI streaming response."""
+    try:
+        global last_context, last_query
+        
+        # Validate query input
+        user_query = request.json.get("query", "").strip()
+        if not user_query or not last_context or user_query != last_query:
+            logging.warning("Invalid query state")
+            return jsonify({"error": "Please get context first"}), 400
 
         # Stream response
-        return Response(generate_response(context, user_query), content_type="text/event-stream")
+        return Response(generate_response(last_context, user_query), content_type="text/event-stream")
 
     except Exception as e:
         logging.error(f"Error in query_collection: {e}", exc_info=True)
@@ -136,10 +149,7 @@ def query_collection():
 
 @app.errorhandler(500)
 def handle_internal_server_error(e):
-    # Log the error details
     app.logger.error(f"Internal Server Error: {e}")
-    
-    # Enrich the response
     response = {
         "error": "Internal server error",
         "message": "An unexpected error occurred. Please contact support if the issue persists.",
@@ -156,26 +166,6 @@ def read_system_prompt(file_path="input/system_prompt.txt"):
     except IOError as e:
         raise IOError(f"An error occurred while reading the file '{file_path}': {e}")
 
-def download_nltk_data():
-    try:
-        nltk.data.find('corpora/stopwords')
-    except LookupError:
-        print("Downloading stopwords...")
-        nltk.download('stopwords')
-
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        print("Downloading punkt tokenizer...")
-        nltk.download('punkt')
-
-    try:
-        nltk.data.find('tokenizers/punkt_tab')
-    except LookupError:
-        print("Downloading punkt_tab tokenizer...")
-        nltk.download('punkt_tab')
-
 if __name__ == '__main__':
     system_prompt = read_system_prompt()
-    download_nltk_data()
     app.run(debug=True)

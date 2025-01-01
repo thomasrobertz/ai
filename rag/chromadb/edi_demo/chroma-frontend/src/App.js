@@ -17,9 +17,29 @@ function App() {
         setIsLoading(true); // Set loading state
 
         try {
-            console.log('Sending query to backend:', query);
+            // First, get the RAG context
+            const contextResponse = await fetch('http://localhost:5000/context', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ query }),
+            });
 
-            const responseStream = await fetch('http://127.0.0.1:5000/query', {
+            if (!contextResponse.ok) {
+                throw new Error('Failed to fetch context');
+            }
+
+            const contextData = await contextResponse.json();
+            if (contextData.error) {
+                setResponse('Error: ' + contextData.error);
+                setIsLoading(false);
+                return;
+            }
+            setRagContext(contextData.context);
+
+            // Then, start streaming the OpenAI response
+            const responseStream = await fetch('http://localhost:5000/query', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -28,10 +48,9 @@ function App() {
             });
 
             if (!responseStream.ok) {
-                throw new Error(`HTTP error! status: ${responseStream.status}`);
+                throw new Error('Network response was not ok');
             }
 
-            console.log('Received response stream from backend');
             const reader = responseStream.body.getReader();
             const decoder = new TextDecoder();
             let done = false;
@@ -41,50 +60,57 @@ function App() {
                 done = streamDone;
                 if (value) {
                     const chunk = decoder.decode(value).trim();
-
-                    // Parse the JSON stream chunk
-                    try {
-                        const event = JSON.parse(chunk.replace('data: ', '').trim());
-                        if (event.rag_context) {
-                            console.log('Received RAG context:', event.rag_context);
-                            setRagContext(event.rag_context);
-                        } else if (event.openai_response) {
-                            console.log('Received OpenAI response:', event.openai_response);
-                            setResponse((prev) => prev + event.openai_response);
-                        } else if (event.error) {
-                            console.error('Error:', event.error);
-                            setResponse('Error: ' + event.error);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.replace('data: ', '').trim();
+                            if (data === '[DONE]') continue;
+                            
+                            try {
+                                const parsed = JSON.parse(data);
+                                if (parsed.content) {
+                                    setResponse(prev => prev + parsed.content);
+                                } else if (parsed.error) {
+                                    console.error('Error:', parsed.error);
+                                    setResponse('Error: ' + parsed.error);
+                                }
+                            } catch (parseError) {
+                                console.error('Error parsing chunk:', parseError);
+                            }
                         }
-                    } catch (parseError) {
-                        console.error('Error parsing chunk:', parseError);
                     }
-                } else {
-                    console.warn('Received empty chunk or no data streamed.');
                 }
             }
-
-            console.log('Stream reading completed');
         } catch (error) {
-            console.error('Error streaming response:', error);
-            setResponse('Error: Unable to fetch the response. Please check the backend.');
+            console.error('Error:', error);
+            setResponse('Error: ' + error.message);
         } finally {
-            setIsLoading(false); // Reset loading state
+            setIsLoading(false);
         }
     };
 
     return (
         <div style={{ padding: '20px' }}>
-            <h1>Chroma Query Interface</h1>
+            <h3>EDED RAG Query</h3>
             <form onSubmit={handleQuerySubmit}>
                 <input
                     type="text"
                     value={query}
                     onChange={handleQueryChange}
-                    placeholder="Enter your query"
+                    placeholder="Query"
                     style={{ width: '300px', marginRight: '10px' }}
                 />
-                <button type="submit" disabled={isLoading}>
-                    {isLoading ? 'Loading...' : 'Search'}
+                <button 
+                    type="submit" 
+                    disabled={isLoading || !query.trim()}
+                    style={{
+                        padding: '5px 15px',
+                        cursor: query.trim() && !isLoading ? 'pointer' : 'not-allowed',
+                        opacity: query.trim() && !isLoading ? 1 : 0.6
+                    }}
+                >
+                    {isLoading ? 'Loading...' : 'Send'}
                 </button>
             </form>
             <div style={{ marginTop: '20px' }}>
@@ -103,7 +129,8 @@ function App() {
                             color: '#555',
                         }}
                     >
-                        <strong>RAG Context:</strong> {ragContext}
+                        <strong>RAG Context:</strong>{' '}
+                        <span dangerouslySetInnerHTML={{ __html: ragContext }} />
                     </div>
                 )}
             </div>

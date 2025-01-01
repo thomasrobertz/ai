@@ -14,7 +14,7 @@ from nltk.tokenize import word_tokenize
 
 load_dotenv()
 system_prompt = ""
-stopwords = set()
+german_stopwords = set()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 chroma_client = chromadb.PersistentClient(
@@ -32,12 +32,8 @@ CORS(app)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 code_pattern = r"code\s+(\d{4})"
 
-system_prompt = """You are a helpful assistant specialized in answering questions about EDI document specifications.
-The request will contain a Context: and a Query: section.
-"""
-
 def dummy_response(context, user_query):
-    """Generate an empty streaming response."""
+    """Generate an empty streaming response for debugging purposes."""
     try:
         logging.info("Generating empty streaming response")
         def empty_stream():
@@ -70,12 +66,12 @@ def generate_response(context, user_query):
         has_streamed_data = False
 
         for chunk in completion:
-            logging.info(f"Received chunk: {chunk}")
+            #logging.info(f"Received chunk: {chunk}")
 
             for choice in chunk.choices:
                 if choice.delta.content:
                     content = choice.delta.content
-                    logging.info(f"Streaming chunk content: {content}")
+                    #logging.info(f"Streaming chunk content: {content}")
                     yield f"data: {json.dumps({'openai_response': content})}\n\n"
                     has_streamed_data = True
 
@@ -101,7 +97,6 @@ def query_collection():
         if not user_query:
             logging.warning("No query provided in request")
             return jsonify({"error": "Query is required"}), 400
-
         logging.info(f"Query: {user_query}")
 
         # Apply code filter if applicable
@@ -126,6 +121,17 @@ def query_collection():
             [" ".join(doc) if isinstance(doc, list) else doc for doc in context_results.get("documents", [])]
         )
         logging.info(f"Retrieved context: {context}")
+    
+        # Filter German stopwords for matching keywords in retrieved context
+        #tokens = word_tokenize(user_query, language='german')
+        #filtered_query = [word for word in tokens if word.lower() not in german_stopwords]
+        #logging.info(f"Filtered Query: {' '.join(filtered_query)}")
+        
+        # Highlight matched keywords in context
+        #highlighted_context = ""
+        #for token in filtered_query:
+        #    highlighted_token = f"<span style='background-color: yellow;'>{token}</span>"
+        #    highlighted_context += highlighted_token + " "
 
         # Stream response
         return Response(generate_response(context, user_query), content_type="text/event-stream")
@@ -177,5 +183,6 @@ def download_nltk_data():
 
 if __name__ == '__main__':
     system_prompt = read_system_prompt()
-    download_nltk_data()
+    #download_nltk_data()
+    #german_stopwords = set(stopwords.words('german'))
     app.run(debug=True)

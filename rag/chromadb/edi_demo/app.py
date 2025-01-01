@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 import logging
 import re
+import json
 
 load_dotenv()
 
@@ -90,29 +91,40 @@ def query_collection():
     """Handle user query and stream response."""
     try:
         logging.info("Received query request")
-        user_query = request.json.get("query", "")
+        
+        # Validate query input
+        user_query = request.json.get("query", "").strip()
         if not user_query:
             logging.warning("No query provided in request")
             return jsonify({"error": "Query is required"}), 400
 
         logging.info(f"Query: {user_query}")
 
+        # Apply code filter if applicable
         code_filter = None
         code_match = re.search(code_pattern, user_query, re.IGNORECASE)
-
         if code_match:
             code_filter = {"code": {"$eq": code_match.group(1)}}
 
-        context_results = collection.query(
-            query_texts=[user_query],
-            n_results=2,
-            where=code_filter
+        # Query the collection
+        try:
+            context_results = collection.query(
+                query_texts=[user_query],
+                n_results=2,
+                where=code_filter
+            )
+        except Exception as query_error:
+            logging.error(f"Error querying collection: {query_error}")
+            return jsonify({"error": "Error querying collection"}), 500
+
+        # Retrieve context
+        context = " ".join(
+            [" ".join(doc) if isinstance(doc, list) else doc for doc in context_results.get("documents", [])]
         )
-        context = " ".join([" ".join(doc) if isinstance(doc, list) else doc for doc in context_results["documents"]])
         logging.info(f"Retrieved context: {context}")
 
+        # Stream response
         return Response(generate_response(context, user_query), content_type="text/event-stream")
-        #return Response(dummy_response(context, user_query), mimetype='text/event-stream')
 
     except Exception as e:
         logging.error(f"Error in query_collection: {e}", exc_info=True)

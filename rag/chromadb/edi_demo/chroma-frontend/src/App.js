@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 function App() {
     const [query, setQuery] = useState('');
     const [response, setResponse] = useState('');
+    const [ragContext, setRagContext] = useState(''); // New state for RAG context
     const [isLoading, setIsLoading] = useState(false);
 
     const handleQueryChange = (e) => {
@@ -12,6 +13,7 @@ function App() {
     const handleQuerySubmit = async (e) => {
         e.preventDefault();
         setResponse(''); // Clear previous response
+        setRagContext(''); // Clear previous RAG context
         setIsLoading(true); // Set loading state
 
         try {
@@ -38,11 +40,26 @@ function App() {
                 const { value, done: streamDone } = await reader.read();
                 done = streamDone;
                 if (value) {
-                  const chunk = decoder.decode(value);
-                  console.log('Received chunk:', chunk);
-                  setResponse((prev) => prev + chunk);
+                    const chunk = decoder.decode(value).trim();
+
+                    // Parse the JSON stream chunk
+                    try {
+                        const event = JSON.parse(chunk.replace('data: ', '').trim());
+                        if (event.rag_context) {
+                            console.log('Received RAG context:', event.rag_context);
+                            setRagContext(event.rag_context);
+                        } else if (event.openai_response) {
+                            console.log('Received OpenAI response:', event.openai_response);
+                            setResponse((prev) => prev + event.openai_response);
+                        } else if (event.error) {
+                            console.error('Error:', event.error);
+                            setResponse('Error: ' + event.error);
+                        }
+                    } catch (parseError) {
+                        console.error('Error parsing chunk:', parseError);
+                    }
                 } else {
-                  console.warn('Received empty chunk or no data streamed.');
+                    console.warn('Received empty chunk or no data streamed.');
                 }
             }
 
@@ -75,6 +92,20 @@ function App() {
                 <div style={{ whiteSpace: 'pre-wrap', border: '1px solid #ddd', padding: '10px' }}>
                     {response}
                 </div>
+                {ragContext && (
+                    <div
+                        style={{
+                            marginTop: '10px',
+                            padding: '10px',
+                            border: '1px solid #ccc',
+                            backgroundColor: '#f9f9f9',
+                            fontSize: '12px',
+                            color: '#555',
+                        }}
+                    >
+                        <strong>RAG Context:</strong> {ragContext}
+                    </div>
+                )}
             </div>
         </div>
     );

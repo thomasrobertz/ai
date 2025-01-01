@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stream Test</title>
+</head>
+<body>
+    <button id="query">Send Query</button>
+    <pre id="output"></pre>
+    <script>
+        document.getElementById('query').addEventListener('click', async () => {
+            const response = await fetch('http://127.0.0.1:5000/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ query: "test query" }),
+            });
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            const output = document.getElementById('output');
+            let done = false;
+
+            while (!done) {
+                const { value, done: streamDone } = await reader.read();
+                done = streamDone;
+                if (value) {
+                    const chunk = decoder.decode(value);
+                    console.log(`Chunk received: ${chunk}`);
+                    output.textContent += chunk;
+                }
+            }
+        });
+    </script>
+</body>
+</html>

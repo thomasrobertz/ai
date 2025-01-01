@@ -70,8 +70,6 @@ def read():
 
                 if id_match:
                     id = id_match.group(1).strip()
-                    if id=="1131":
-                        print()
                     line = re.sub(id, "", line).strip()
                     usage_match = re.search(usage_pattern, line)
                     if usage_match:
@@ -93,7 +91,8 @@ def read():
                         noteLine = re.sub(r"^\s?1\s", "", noteLine).strip()
                         note = (note + " " + noteLine).strip()
 
-            text = "[Name:] " + name.replace('.', '')
+            text = "[Code:] " + id
+            text += "\n[Name:] " + name.replace('.', '')
             text += "\n[Description:] " + desc.replace('.', '')
             text += "\n[Representation:] " + repr
 

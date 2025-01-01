@@ -23,6 +23,7 @@ with open(input_file, "r") as file:
 for item in data:
     metadata = {key: value for key, value in {
         "name": item["name"],
+        "code": item["id"],
         "description": item["description"],
         "representation": item["representation"],
         "representation_description": item["representation_description"],
@@ -38,11 +39,11 @@ for item in data:
         metadatas=[metadata]
     )
 
-results = collection.query(
-    query_texts=["Query about Document identifier"],
-    n_results=2
-)
-print(results)
+#results = collection.query(
+#    query_texts=["Query about Document identifier"],
+#    n_results=2
+#)
+#print(results)
 
 # Debug output
 #for element in data:

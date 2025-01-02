@@ -37,8 +37,11 @@ function App() {
         setIsLoading(true); // Set loading state
 
         try {
-            // First, get the RAG context
-            const contextResponse = await fetch('http://localhost:5000/context', {
+            // LOCAL
+            const contextResponse = await fetch('/edi_demo/api/context', {
+            
+            // VServer
+            //const contextResponse = await fetch('/edi_demo/api/context', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -59,7 +62,7 @@ function App() {
             setRagContext(contextData.context);
 
             // Then, start streaming the OpenAI response
-            const responseStream = await fetch('http://localhost:5000/query', {
+            const responseStream = await fetch('/edi_demo/api/query', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

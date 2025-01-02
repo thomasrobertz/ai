@@ -1,9 +1,12 @@
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import chromadb
 from chromadb.config import Settings, DEFAULT_TENANT, DEFAULT_DATABASE
 from openai import OpenAI
 import os
+import html
 from dotenv import load_dotenv
 import logging
 import re
@@ -28,6 +31,8 @@ collection = chroma_client.get_or_create_collection("eded")
 
 app = Flask(__name__)
 CORS(app)
+limiter = Limiter(key_func=get_remote_address)
+limiter.init_app(app)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 code_pattern = r"code\s+(\d{4})"
@@ -35,6 +40,13 @@ code_pattern = r"code\s+(\d{4})"
 # Store last context and query globally
 last_context = None
 last_query = None
+
+def validate_input(user_input):
+    if len(user_input) > 1000: 
+        raise ValueError("Input too long.")
+    if not all(ord(c) < 128 for c in user_input):
+        raise ValueError("Invalid characters detected.")
+    return html.escape(user_input)
 
 def normalize_text(text):
     return re.findall(r'\b[\w.-]+\b', text.lower())
@@ -90,6 +102,7 @@ def generate_response(context, user_query):
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
 @app.route('/context', methods=['POST'])
+@limiter.limit("15 per minute") 
 def get_context():
     """Get RAG context for a query."""
     try:
@@ -99,6 +112,8 @@ def get_context():
         if not user_query:
             logging.warning("No query provided in request")
             return jsonify({"error": "Query is required"}), 400
+
+        user_query = validate_input(user_query)
 
         code_filter = None
         code_match = re.search(code_pattern, user_query, re.IGNORECASE)
@@ -132,6 +147,7 @@ def get_context():
         return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/query', methods=['POST'])
+@limiter.limit("15 per minute") 
 def query_collection():
     """Handle OpenAI streaming response."""
     try:
@@ -141,6 +157,8 @@ def query_collection():
         if not user_query or not last_context or user_query != last_query:
             logging.warning("Invalid query state")
             return jsonify({"error": "Please get context first"}), 400
+
+        user_query = validate_input(user_query)
 
         #return Response(dummy_response(last_context, user_query), content_type="text/event-stream")
         return Response(generate_response(last_context, user_query), content_type="text/event-stream")

@@ -1,4 +1,10 @@
 import React, { useState } from 'react';
+import { marked } from 'marked';
+
+// API base URL configuration
+const API_BASE_URL = process.env.NODE_ENV === 'production' 
+    ? '/edi_demo/api' 
+    : 'http://localhost:5000';
 
 function App() {
     const [query, setQuery] = useState('');
@@ -37,11 +43,8 @@ function App() {
         setIsLoading(true); // Set loading state
 
         try {
-            // LOCAL
-            const contextResponse = await fetch('/edi_demo/api/context', {
-            
-            // VServer
-            //const contextResponse = await fetch('/edi_demo/api/context', {
+            // Get the RAG context
+            const contextResponse = await fetch(`${API_BASE_URL}/context`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -62,7 +65,7 @@ function App() {
             setRagContext(contextData.context);
 
             // Then, start streaming the OpenAI response
-            const responseStream = await fetch('/edi_demo/api/query', {
+            const responseStream = await fetch(`${API_BASE_URL}/query`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

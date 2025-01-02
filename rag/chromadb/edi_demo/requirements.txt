@@ -6,3 +6,4 @@ python-dotenv==1.0.0
 nltk==3.8.1
 numpy<2.0.0
 httpx<0.25.0
+Flask-Limiter==3.5.0

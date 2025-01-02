@@ -94,6 +94,7 @@ def read():
             text = "[Code:] " + id
             text += "\n[Name:] " + name.replace('.', '')
             text += "\n[Description:] " + desc.replace('.', '')
+            text += "\n[Usage:] " + usage
             text += "\n[Representation:] " + repr
 
             if note:  

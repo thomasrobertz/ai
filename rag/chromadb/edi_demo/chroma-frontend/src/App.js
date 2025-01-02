@@ -10,11 +10,11 @@ function App() {
     const examplePrompts = [
         "Tell me about the element with code 1001.",
         "Show me all elements related to dates.",
-        "Explain the usage of code 7431.", // Not working (perhaps add usage to text and or implement usage just like "code")
+        "Explain the usage of code 7431.",
         "What does an..7 mean?",
         "List 4 elements with numeric representation.",
         "What elements are used for identification?",
-        "Show me elements with code pattern 34..", // Not working
+        "What is the usage description for usage [I]?",
         "Which elements use alphanumeric format?",
         "Explain the difference between n2 and n..2",
         "What are conditional elements? *",

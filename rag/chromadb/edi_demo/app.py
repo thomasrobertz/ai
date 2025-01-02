@@ -8,9 +8,13 @@ from dotenv import load_dotenv
 import logging
 import re
 import json
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
 
 load_dotenv()
 system_prompt = ""
+english_stopwords = set()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 chroma_client = chromadb.PersistentClient(
@@ -91,19 +95,16 @@ def get_context():
     try:
         global last_context, last_query
         
-        # Validate query input
         user_query = request.json.get("query", "").strip()
         if not user_query:
             logging.warning("No query provided in request")
             return jsonify({"error": "Query is required"}), 400
 
-        # Apply code filter if applicable
         code_filter = None
         code_match = re.search(code_pattern, user_query, re.IGNORECASE)
         if code_match:
             code_filter = {"code": {"$eq": code_match.group(1)}}
 
-        # Query the collection
         try:
             context_results = collection.query(
                 query_texts=[user_query],
@@ -114,12 +115,14 @@ def get_context():
             logging.error(f"Error querying collection: {query_error}")
             return jsonify({"error": "Error querying collection"}), 500
 
-        # Store context and query for later use
         last_context = " ".join([" ".join(doc) if isinstance(doc, list) else doc for doc in context_results.get("documents", [])])
         last_query = user_query
 
-        # Return highlighted context
-        user_query_split = normalize_text(user_query)
+        tokens = word_tokenize(user_query, language='english')
+        filtered_query = [word for word in tokens if word.lower() not in english_stopwords]
+        #logging.info(f"Filtered Query: {' '.join(filtered_query)}")
+
+        user_query_split = normalize_text(' '.join(filtered_query))
         highlighted_context = highlight_context(last_context, set(user_query_split))
         
         return jsonify({"context": highlighted_context})
@@ -134,13 +137,12 @@ def query_collection():
     try:
         global last_context, last_query
         
-        # Validate query input
         user_query = request.json.get("query", "").strip()
         if not user_query or not last_context or user_query != last_query:
             logging.warning("Invalid query state")
             return jsonify({"error": "Please get context first"}), 400
 
-        # Stream response
+        #return Response(dummy_response(last_context, user_query), content_type="text/event-stream")
         return Response(generate_response(last_context, user_query), content_type="text/event-stream")
 
     except Exception as e:
@@ -166,6 +168,17 @@ def read_system_prompt(file_path="input/system_prompt.txt"):
     except IOError as e:
         raise IOError(f"An error occurred while reading the file '{file_path}': {e}")
 
+def download_nltk_data():
+    required_packages = ['stopwords', 'punkt']
+    for package in required_packages:
+        try:
+            nltk.data.find(f'corpora/{package}' if package == 'stopwords' else f'tokenizers/{package}')
+        except LookupError:
+            print(f"Downloading {package}...")
+            nltk.download(package)
+
 if __name__ == '__main__':
     system_prompt = read_system_prompt()
+    download_nltk_data()
+    english_stopwords = set(stopwords.words('english'))
     app.run(debug=True)

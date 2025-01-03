@@ -14,6 +14,9 @@ import json
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+from sklearn.metrics.pairwise import cosine_similarity
+import pandas as pd
+import numpy as np
 
 load_dotenv()
 system_prompt = ""
@@ -56,6 +59,14 @@ def highlight_context(context, query_words):
         word = match.group()
         return f"<span style='background-color: #ffefbf'>{word}</span>" if word.lower() in query_words else word
     return re.sub(r'\b[\w.-]+\b', replacer, context)
+
+def get_embedding(text, engine="text-embedding-ada-002"):
+    """Fetch the embedding for a given text."""
+    response = client.embeddings.create(
+        input=text,
+        model=engine
+    )
+    return response.data[0].embedding
 
 def dummy_response(context, user_query):
     """Generate an empty streaming response."""
@@ -101,13 +112,14 @@ def generate_response(context, user_query):
         logging.error(f"Error during OpenAI completion: {e}", exc_info=True)
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
+
 @app.route('/context', methods=['POST'])
 @limiter.limit("15 per minute") 
 def get_context():
-    """Get RAG context for a query."""
+    """Get RAG context data for a query with Top-K Aggregate Similarity."""
     try:
         global last_context, last_query
-        
+
         user_query = request.json.get("query", "").strip()
         if not user_query:
             logging.warning("No query provided in request")
@@ -115,6 +127,7 @@ def get_context():
 
         user_query = validate_input(user_query)
 
+        # Apply code filter if query contains a code pattern
         code_filter = None
         code_match = re.search(code_pattern, user_query, re.IGNORECASE)
         if code_match:
@@ -130,21 +143,65 @@ def get_context():
             logging.error(f"Error querying collection: {query_error}")
             return jsonify({"error": "Error querying collection"}), 500
 
-        last_context = " ".join([" ".join(doc) if isinstance(doc, list) else doc for doc in context_results.get("documents", [])])
+        # Retrieve and flatten grouped documents
+        retrieved_contexts = [
+            context for group in context_results.get("documents", []) for context in group
+        ]
+        if not retrieved_contexts:
+            logging.warning("No documents retrieved from the collection")
+            return jsonify({"similarities": [], "top_k_similarity": None})
+
+        # Set the global context for chat functionality
+        last_context = " ".join(retrieved_contexts)
         last_query = user_query
 
+        # Generate embeddings
+        query_embedding = get_embedding(user_query)
+        context_embeddings = [get_embedding(context) for context in retrieved_contexts]
+
+        # Compute similarities
+        similarities = cosine_similarity([query_embedding], context_embeddings)[0]
+
+        # Highlight query words for each context
         tokens = word_tokenize(user_query, language='english')
         filtered_query = [word for word in tokens if word.lower() not in english_stopwords]
-        #logging.info(f"Filtered Query: {' '.join(filtered_query)}")
+        query_words = normalize_text(' '.join(filtered_query))
 
-        user_query_split = normalize_text(' '.join(filtered_query))
-        highlighted_context = highlight_context(last_context, set(user_query_split))
-        
-        return jsonify({"context": highlighted_context})
+        similarity_results = [
+            {
+                "context": highlight_context(retrieved_contexts[i], set(query_words)),
+                "similarity": float(similarities[i])
+            }
+            for i in range(len(retrieved_contexts))
+        ]
+
+        # Compute Top-K aggregate similarity
+        top_k = 3
+        if len(retrieved_contexts) <= 5:
+            top_k = 2
+        if len(retrieved_contexts) <= 3:
+            top_k = 1
+        top_indices = np.argsort(similarities)[-top_k:]  # Indices of top-K similar entries
+        top_embeddings = [context_embeddings[i] for i in top_indices]
+        top_mean_embedding = np.mean(top_embeddings, axis=0)
+        top_k_similarity = float(cosine_similarity([query_embedding], [top_mean_embedding])[0][0])
+
+        #logging.info(f"Retrieved Contexts: {retrieved_contexts}")
+        #logging.info(f"Context Embeddings Count: {len(context_embeddings)}")
+        #logging.info(f"Similarities: {similarities}")
+
+        return jsonify({
+            "similarities": similarity_results,
+            "top_k_similarity": top_k_similarity
+        })
 
     except Exception as e:
         logging.error(f"Error in get_context: {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
+
+
+
+
 
 @app.route('/query', methods=['POST'])
 @limiter.limit("15 per minute") 

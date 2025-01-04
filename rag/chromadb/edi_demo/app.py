@@ -21,6 +21,8 @@ import numpy as np
 load_dotenv()
 system_prompt = ""
 english_stopwords = set()
+last_context = None
+last_query = None
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 chroma_client = chromadb.PersistentClient(
@@ -39,10 +41,6 @@ limiter.init_app(app)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 code_pattern = r"code\s+(\d{4})"
-
-# Store last context and query globally
-last_context = None
-last_query = None
 
 def validate_input(user_input):
     if len(user_input) > 1000: 
@@ -151,10 +149,6 @@ def get_context():
             logging.warning("No documents retrieved from the collection")
             return jsonify({"similarities": [], "top_k_similarity": None})
 
-        # Set the global context for chat functionality
-        last_context = " ".join(retrieved_contexts)
-        last_query = user_query
-
         # Generate embeddings
         query_embedding = get_embedding(user_query)
         context_embeddings = [get_embedding(context) for context in retrieved_contexts]
@@ -186,9 +180,9 @@ def get_context():
         top_mean_embedding = np.mean(top_embeddings, axis=0)
         top_k_similarity = float(cosine_similarity([query_embedding], [top_mean_embedding])[0][0])
 
-        #logging.info(f"Retrieved Contexts: {retrieved_contexts}")
-        #logging.info(f"Context Embeddings Count: {len(context_embeddings)}")
-        #logging.info(f"Similarities: {similarities}")
+        # Set the global context and query before returning
+        last_context = "\n".join(retrieved_contexts)
+        last_query = user_query
 
         return jsonify({
             "similarities": similarity_results,
@@ -211,8 +205,16 @@ def query_collection():
         global last_context, last_query
         
         user_query = request.json.get("query", "").strip()
-        if not user_query or not last_context or user_query != last_query:
-            logging.warning("Invalid query state")
+        logging.info(f"Query received: {user_query}")
+        logging.info(f"Last query was: {last_query}")
+        logging.info(f"Last context exists: {last_context is not None}")
+        
+        # Unescape both queries before comparison
+        current_query = html.unescape(user_query)
+        stored_query = html.unescape(last_query) if last_query else None
+        
+        if not current_query or not last_context or current_query != stored_query:
+            logging.warning(f"Invalid query state: empty_query={not current_query}, no_context={not last_context}, query_mismatch={current_query != stored_query}")
             return jsonify({"error": "Please get context first"}), 400
 
         user_query = validate_input(user_query)

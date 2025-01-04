@@ -217,8 +217,16 @@ def query_collection():
 
         user_query = validate_input(user_query)
 
-        #return Response(dummy_response(last_context, user_query), content_type="text/event-stream")
-        return Response(generate_response(last_context, user_query), content_type="text/event-stream")
+        response = Response(
+            generate_response(last_context, user_query),
+            content_type="text/event-stream",
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',  # Disable Nginx buffering
+                'Connection': 'keep-alive'
+            }
+        )
+        return response
 
     except Exception as e:
         logging.error(f"Error in query_collection: {e}", exc_info=True)

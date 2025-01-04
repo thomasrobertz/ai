@@ -37,3 +37,6 @@ coverage/
 
 # Ignore Anaconda Navigator files
 *.conda
+
+# Ignore chroma metadata
+chroma/*/length.bin

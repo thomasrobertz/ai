@@ -244,7 +244,7 @@ def read_system_prompt(file_path="input/system_prompt.txt"):
         raise IOError(f"An error occurred while reading the file '{file_path}': {e}")
 
 def download_nltk_data():
-    required_packages = ['stopwords', 'punkt']
+    required_packages = ['stopwords', 'punkt', 'punkt_tab']
     for package in required_packages:
         try:
             nltk.data.find(f'corpora/{package}' if package == 'stopwords' else f'tokenizers/{package}')

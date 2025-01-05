@@ -138,7 +138,7 @@ def re_rank_cross_encoders(documents: list[str]) -> tuple[str, list[int]]:
 if __name__ == "__main__":
     # Document Upload Area
     with st.sidebar:
-        st.set_page_config(page_title="PDF RAG QA")
+        st.set_page_config(page_title="PDF RAG QnA")
         uploaded_file = st.file_uploader(
             "**Upload PDF files for QnA**", type=["pdf"], accept_multiple_files=False
         )
@@ -154,7 +154,7 @@ if __name__ == "__main__":
             add_to_vector_collection(all_splits, normalize_uploaded_file_name)
 
     # Question and Answer Area
-    st.header("PDF RAG QA")
+    st.header("PDF RAG QnA")
     st.caption("⚠️ Note: Responses may take a few moments as all inference is running locally.")
     st.text("AWS CCP Exam guide has been preloaded.")
     
